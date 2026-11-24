@@ -49,6 +49,9 @@ def on_connect(auth=None):
             if current and current != sid:
                 return False
             agents[room] = sid
+            interface_cache.pop(room, None)
+            stats_cache.pop(room, None)
+            capture_status_cache[room] = {"running": False, "message": "Helper connected"}
         sessions[sid] = {"room": room, "role": role}
 
     join_room(room)
