@@ -1,4 +1,6 @@
-"""Hosted dashboard relay. Only paired agents can publish packet telemetry."""
+"""Hosted dashboard relay. Only paired agents can publish telemetry."""
+import os
+import secrets
 from hashlib import sha256
 from threading import RLock
 
@@ -6,13 +8,13 @@ from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "replace-at-deploy-with-random-secret"
-socketio = SocketIO(app, async_mode="eventlet", cors_allowed_origins=[])
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+socketio = SocketIO(app, async_mode="eventlet")
 
 lock = RLock()
-sessions = {}          # Socket.IO SID -> {room, role}
-agents = {}            # room -> agent SID
-interface_cache = {}   # room -> latest interface list
+sessions = {}          # SID -> {room, role}
+agents = {}            # hashed room -> agent SID
+interface_cache = {}   # hashed room -> latest interface list
 
 
 def session_room(token):
@@ -30,7 +32,7 @@ def health():
 
 
 @socketio.on("connect")
-def on_connect(auth):
+def on_connect(auth=None):
     auth = auth or {}
     token = auth.get("token")
     role = auth.get("role")
@@ -86,10 +88,9 @@ def on_agent_interfaces(items):
     if not room:
         return
     safe_items = items if isinstance(items, list) else []
-    safe_items = safe_items[:40]
     with lock:
-        interface_cache[room] = safe_items
-    socketio.emit("interfaces", safe_items, to=room)
+        interface_cache[room] = safe_items[:40]
+    socketio.emit("interfaces", safe_items[:40], to=room)
 
 
 @socketio.on("agent_packet")
@@ -128,14 +129,14 @@ def on_request_start(data):
     room = info["room"]
     with lock:
         agent_sid = agents.get(room)
+        known_interfaces = {i.get("id") for i in interface_cache.get(room, []) if isinstance(i, dict)}
     interface = (data or {}).get("interface") if isinstance(data, dict) else None
     if not agent_sid:
         emit("control_error", {"message": "Capture helper is offline. Start the Windows helper first."})
-        return
-    if not isinstance(interface, str) or not interface:
-        emit("control_error", {"message": "Choose a network adapter first."})
-        return
-    socketio.emit("control_start", {"interface": interface}, to=agent_sid)
+    elif not isinstance(interface, str) or interface not in known_interfaces:
+        emit("control_error", {"message": "Choose an available network adapter."})
+    else:
+        socketio.emit("control_start", {"interface": interface}, to=agent_sid)
 
 
 @socketio.on("request_stop")
@@ -152,4 +153,4 @@ def on_request_stop():
 
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+    socketio.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
