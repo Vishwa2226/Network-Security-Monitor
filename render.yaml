@@ -2,6 +2,7 @@ services:
   - type: web
     name: network-security-monitor
     runtime: python
+    region: singapore
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --worker-class eventlet -w 1 --timeout 120 app:app
