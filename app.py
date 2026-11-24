@@ -1,15 +1,22 @@
-"""Local Flask-SocketIO application."""
+"""Hosted dashboard relay. Only paired agents can publish packet telemetry."""
+from hashlib import sha256
+from threading import RLock
+
 from flask import Flask, jsonify, render_template, request
-from flask_socketio import SocketIO
-from analyzer import PacketAnalyzer
-from capture import CaptureManager
+from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "local-network-monitor"
-socketio = SocketIO(app, async_mode="threading")
+app.config["SECRET_KEY"] = "replace-at-deploy-with-random-secret"
+socketio = SocketIO(app, async_mode="eventlet", cors_allowed_origins=[])
 
-analyzer = PacketAnalyzer(lambda event, data: socketio.emit(event, data))
-capture = CaptureManager(analyzer, lambda event, data: socketio.emit(event, data))
+lock = RLock()
+sessions = {}          # Socket.IO SID -> {room, role}
+agents = {}            # room -> agent SID
+interface_cache = {}   # room -> latest interface list
+
+
+def session_room(token):
+    return "monitor_" + sha256(token.encode("utf-8")).hexdigest()
 
 
 @app.get("/")
@@ -17,40 +24,132 @@ def index():
     return render_template("index.html")
 
 
-@app.get("/api/interfaces")
-def api_interfaces():
-    return jsonify({"interfaces": capture.interfaces()})
-
-
-@app.get("/api/status")
-def api_status():
-    return jsonify({
-        "running": capture.running,
-        "interface": capture.interface,
-        "stats": analyzer.snapshot(),
-    })
-
-
-@app.post("/api/start")
-def api_start():
-    body = request.get_json(silent=True) or {}
-    ok, message = capture.start(body.get("interface", ""))
-    return jsonify({"ok": ok, "message": message}), (200 if ok else 400)
-
-
-@app.post("/api/stop")
-def api_stop():
-    ok, message = capture.stop()
-    return jsonify({"ok": ok, "message": message}), (200 if ok else 500)
+@app.get("/health")
+def health():
+    return jsonify({"ok": True, "service": "network-security-monitor"})
 
 
 @socketio.on("connect")
-def on_connect():
-    socketio.emit("stats", analyzer.snapshot())
-    socketio.emit("capture_status", {
-        "running": capture.running, "interface": capture.interface
-    })
+def on_connect(auth):
+    auth = auth or {}
+    token = auth.get("token")
+    role = auth.get("role")
+    if not isinstance(token, str) or len(token) < 32 or role not in ("agent", "viewer"):
+        return False
+
+    room = session_room(token)
+    sid = request.sid
+    with lock:
+        if role == "agent":
+            current = agents.get(room)
+            if current and current != sid:
+                return False
+            agents[room] = sid
+        sessions[sid] = {"room": room, "role": role}
+
+    join_room(room)
+    if role == "viewer":
+        with lock:
+            online = room in agents
+            interfaces = interface_cache.get(room, [])
+        emit("agent_status", {"online": online})
+        if interfaces:
+            emit("interfaces", interfaces)
+    else:
+        socketio.emit("agent_status", {"online": True}, to=room)
+    return True
+
+
+@socketio.on("disconnect")
+def on_disconnect(reason=None):
+    sid = request.sid
+    with lock:
+        info = sessions.pop(sid, None)
+        if info and info["role"] == "agent" and agents.get(info["room"]) == sid:
+            agents.pop(info["room"], None)
+            interface_cache.pop(info["room"], None)
+            room = info["room"]
+        else:
+            room = None
+    if room:
+        socketio.emit("agent_status", {"online": False}, to=room)
+
+
+def authenticated_agent_room():
+    info = sessions.get(request.sid)
+    return info["room"] if info and info["role"] == "agent" else None
+
+
+@socketio.on("agent_interfaces")
+def on_agent_interfaces(items):
+    room = authenticated_agent_room()
+    if not room:
+        return
+    safe_items = items if isinstance(items, list) else []
+    safe_items = safe_items[:40]
+    with lock:
+        interface_cache[room] = safe_items
+    socketio.emit("interfaces", safe_items, to=room)
+
+
+@socketio.on("agent_packet")
+def on_agent_packet(data):
+    room = authenticated_agent_room()
+    if room and isinstance(data, dict):
+        socketio.emit("packet", data, to=room)
+
+
+@socketio.on("agent_stats")
+def on_agent_stats(data):
+    room = authenticated_agent_room()
+    if room and isinstance(data, dict):
+        socketio.emit("stats", data, to=room)
+
+
+@socketio.on("agent_alert")
+def on_agent_alert(data):
+    room = authenticated_agent_room()
+    if room and isinstance(data, dict):
+        socketio.emit("alert", data, to=room)
+
+
+@socketio.on("agent_capture_status")
+def on_agent_capture_status(data):
+    room = authenticated_agent_room()
+    if room and isinstance(data, dict):
+        socketio.emit("capture_status", data, to=room)
+
+
+@socketio.on("request_start")
+def on_request_start(data):
+    info = sessions.get(request.sid)
+    if not info or info["role"] != "viewer":
+        return
+    room = info["room"]
+    with lock:
+        agent_sid = agents.get(room)
+    interface = (data or {}).get("interface") if isinstance(data, dict) else None
+    if not agent_sid:
+        emit("control_error", {"message": "Capture helper is offline. Start the Windows helper first."})
+        return
+    if not isinstance(interface, str) or not interface:
+        emit("control_error", {"message": "Choose a network adapter first."})
+        return
+    socketio.emit("control_start", {"interface": interface}, to=agent_sid)
+
+
+@socketio.on("request_stop")
+def on_request_stop():
+    info = sessions.get(request.sid)
+    if not info or info["role"] != "viewer":
+        return
+    with lock:
+        agent_sid = agents.get(info["room"])
+    if agent_sid:
+        socketio.emit("control_stop", {}, to=agent_sid)
+    else:
+        emit("control_error", {"message": "Capture helper is offline."})
 
 
 if __name__ == "__main__":
-    socketio.run(app, host="127.0.0.1", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
