@@ -5,3 +5,6 @@ __pycache__/
 *.pcap
 *.pcapng
 .DS_Store
+agent/.venv/
+agent/pairing_token.txt
+agent/dashboard_url.txt
