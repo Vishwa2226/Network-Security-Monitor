@@ -1,59 +1,63 @@
 # Network Security Monitor
 
-A local real-time network monitoring dashboard built with Python, Flask-SocketIO, Scapy and Npcap.
+**Hosted dashboard + Windows packet-capture helper.** Open the dashboard from a browser, pair your Windows helper once, then start/stop capture from the website.
 
-## Features
-- Live packet capture from a selected local network adapter.
-- Packet totals, approximate traffic rate and protocol distribution.
-- Recent packet table with source/destination addresses, ports, lengths and TCP flags.
-- Conservative heuristic alerts for possible port scanning or unusually high SYN activity.
-- Start/stop capture controls and adapter selection.
-- Local-first operation; no packet contents are uploaded to a cloud service.
+## How it works
+- **Hosted dashboard:** Flask + Flask-SocketIO, deployable to Render.
+- **Windows helper:** Scapy + Npcap + Python Socket.IO client.
+- The helper opens an outbound HTTPS/WebSocket connection to the dashboard. No inbound port or router configuration is needed on your laptop.
+- A random private pairing token groups the helper and browser into a private live session.
+- The website sends Start/Stop commands; the helper captures traffic locally and forwards packet summaries.
 
-> **Capture scope:** This captures traffic visible to the selected computer's adapter. On ordinary Windows Wi-Fi this generally means traffic to/from this computer, not all devices on the wireless LAN. Cisco Packet Tracer simulation traffic is separate and is not automatically captured by Scapy on the laptop.
+## 1. Deploy the website
+1. Sign in to Render: https://dashboard.render.com/
+2. Select **New** → **Blueprint**.
+3. Connect GitHub and choose `Vishwa2226/Network-Security-Monitor`.
+4. Render reads `render.yaml`. Review the service and deploy it.
+5. After deployment, copy the HTTPS service URL, such as `https://network-security-monitor.onrender.com`.
 
-## Requirements
-- Windows 10/11
-- Python 3.11+
-- Npcap installed (https://npcap.com/)
-- Administrator privileges may be required for live capture.
+The included Blueprint configures Python 3.11, dependencies, Gunicorn with one Eventlet worker, a health check and a generated secret key. Render supports inbound WebSockets to web services and outbound WebSocket connections from clients. References: [Render WebSockets](https://render.com/docs/websocket), [Render Blueprint YAML](https://render.com/docs/blueprint-spec), [Render Python version](https://render.com/docs/python-version).
 
-## Setup (Windows PowerShell)
-Open PowerShell in this project folder and run:
+The free Render service can spin down after 15 minutes without inbound HTTP requests or WebSocket messages. The helper sends a small stats heartbeat every 5 seconds while connected, which provides inbound WebSocket activity; free services can still be restarted by the platform. See [Render free instance limitations](https://render.com/docs/free).
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python run.py
-```
+## 2. Install Npcap once
+Install Npcap from https://npcap.com/ on your Windows laptop. Restart the terminal after installation. If live capture is denied, close Wireshark and run the helper as Administrator.
 
-Open http://127.0.0.1:5000, select the active Wi-Fi or Ethernet adapter, and click **Start capture**.
+## 3. Start the Windows helper
+1. Download the repository using GitHub **Code** → **Download ZIP**, then extract it.
+2. Open the extracted folder, then open the `agent` folder.
+3. Double-click `start_agent.bat`.
+4. On first launch it creates a Python virtual environment and installs the helper packages. It then displays a random pairing token.
+5. Copy the token. When prompted, paste the deployed Render HTTPS URL. The URL is saved locally for next time.
+6. Keep the helper console open (minimise it if desired).
 
-If PowerShell blocks activation, run:
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py
-```
+## 4. Start capture from your website
+1. Open your Render HTTPS URL in Chrome.
+2. Paste the pairing token in **Pair Windows helper**, then click **Connect**.
+3. Wait until the helper shows **online**. Choose the active Wi-Fi or Ethernet adapter.
+4. Click **Start Capture**. The dashboard shows real packet rows, protocols, endpoints, traffic-rate estimates and heuristic alerts.
+5. Click **Stop** to stop capture from the website.
 
-## Generate harmless test traffic
-In another PowerShell window, run:
+## Pairing-token security
+- Treat the token like a password. Anyone who has it can view that live feed and control its capture session.
+- The token is stored in `agent/pairing_token.txt` on the laptop and is ignored by Git.
+- Never commit, post, or include the token in screenshots or reports.
+- To rotate it, close the helper, delete `agent/pairing_token.txt`, restart the helper and pair with the new token.
+- Use only the HTTPS hosted dashboard URL. The hosted service does not intentionally store a packet archive.
+
+## Important scope and limitations
+- The helper can capture only packets visible to the selected laptop adapter. Ordinary Wi-Fi operation normally exposes the laptop's own traffic, not all traffic from other devices on the same network.
+- TLS application payloads remain encrypted; this dashboard does not decrypt them.
+- The alerts are basic educational heuristics, not proof of compromise or a full IDS. False positives are possible.
+- Cisco Packet Tracer Simulation Mode is separate and is not automatically captured by the laptop's Scapy helper. Treat Packet Tracer simulation results and laptop packet captures as separate evidence unless traffic is deliberately bridged or a PCAP is exported and analyzed separately.
+
+## Harmless test traffic
+With capture running, open a separate PowerShell window and run:
 ```powershell
 ping 8.8.8.8 -n 5
 nslookup example.com
 ```
-Then open an ordinary HTTPS website and observe packets in the dashboard.
-
-## Troubleshooting
-- **No interfaces:** install/reinstall Npcap and restart the terminal.
-- **Permission error:** close Wireshark/other capture sessions and run PowerShell as Administrator.
-- **No packets:** choose the adapter with your active IPv4 address and generate traffic.
-- **Port 5000 is busy:** set `PORT=5001` before running.
-- The app binds to localhost by default. Do not expose it to the public internet.
-
-## Detection limitations
-Alerts are simple traffic heuristics, not proof of compromise or a replacement for an IDS. Legitimate software can cause false positives. Verify suspicious observations in Wireshark before reporting an incident. TLS application payloads are encrypted and are not decrypted by this tool.
+Then visit an HTTPS website and observe the packet table.
 
 ## Project structure
 ```
@@ -62,6 +66,12 @@ analyzer.py
 capture.py
 run.py
 requirements.txt
+render.yaml
+.python-version
+agent/
+  agent.py
+  start_agent.bat
+  requirements.txt
 templates/index.html
 static/style.css
 static/app.js
