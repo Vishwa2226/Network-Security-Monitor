@@ -42,7 +42,7 @@ def load_dashboard_url():
 
 
 def wait_for_dashboard(url):
-    print("\\nChecking dashboard availability. On a free host, the first start may take a little longer…")
+    print("\nChecking dashboard availability. On a free host, the first start may take a little longer…")
     while True:
         try:
             with urlopen(url + "/health", timeout=12) as response:
