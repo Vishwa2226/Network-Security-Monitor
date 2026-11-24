@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Network Security Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">N</div><div><b>NETSENTINEL</b><small>NETWORK OBSERVABILITY</small></div></div>
+    <div class="side-label">WORKSPACE</div>
+    <div class="nav active">▦ &nbsp; Overview</div>
+    <div class="nav">◉ &nbsp; Live packets</div>
+    <div class="nav">⚑ &nbsp; Threat signals</div>
+    <div class="sidebar-bottom"><span class="status-dot"></span> LOCAL SENSOR<small>Windows / Npcap</small></div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div><div class="eyebrow">SECURITY OPERATIONS / MONITORING</div><h1>Network overview</h1></div>
+      <div class="header-right"><span id="statusPill" class="pill idle">● STOPPED</span><span id="clock" class="clock">--:--:--</span></div>
+    </header>
+    <section class="control-panel">
+      <div class="control-copy"><b>Capture source</b><small>Monitor traffic visible to this computer's selected adapter.</small></div>
+      <select id="interfaceSelect" aria-label="Network interface"><option>Loading interfaces…</option></select>
+      <button id="refreshBtn" class="secondary">↻ Refresh</button>
+      <button id="startBtn" class="primary">▶ Start capture</button>
+      <button id="stopBtn" class="danger" disabled>■ Stop</button>
+    </section>
+    <div id="notice" class="notice">Select your active Wi-Fi or Ethernet adapter, then start capture.</div>
+    <section class="metrics">
+      <article class="metric"><div class="metric-label">PACKETS CAPTURED</div><div id="totalPackets" class="metric-value">0</div><div class="metric-foot">Since app start</div></article>
+      <article class="metric"><div class="metric-label">CURRENT PACKET RATE</div><div id="pps" class="metric-value">0.0 <em>pps</em></div><div class="metric-foot">Rolling 5-second window</div></article>
+      <article class="metric"><div class="metric-label">BANDWIDTH</div><div id="kbps" class="metric-value">0.00 <em>kbps</em></div><div class="metric-foot">Approximate observed rate</div></article>
+      <article class="metric"><div class="metric-label">HEURISTIC ALERTS</div><div id="alertCount" class="metric-value">0</div><div class="metric-foot">Signals requiring investigation</div></article>
+    </section>
+    <section class="grid">
+      <article class="panel">
+        <div class="panel-head"><div><h2>Protocol distribution</h2><small>Observed packets by protocol</small></div><span class="live-tag">LIVE</span></div>
+        <div class="protocol-layout"><canvas id="protocolChart" width="220" height="220"></canvas><div id="protocolLegend" class="legend"><div class="empty">Waiting for packets…</div></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Traffic activity</h2><small>Packets per update interval</small></div><span class="subtle">Recent activity</span></div>
+        <canvas id="trafficChart" class="traffic-chart" width="700" height="220"></canvas>
+      </article>
+      <article class="panel table-panel">
+        <div class="panel-head"><div><h2>Recent packets</h2><small>Latest observed network frames</small></div><span id="packetCount" class="subtle">0 shown</span></div>
+        <div class="table-wrap"><table><thead><tr><th>TIME</th><th>PROTOCOL</th><th>SOURCE</th><th>DESTINATION</th><th>PORTS</th><th>SIZE</th><th>FLAGS</th></tr></thead><tbody id="packetRows"><tr><td colspan="7" class="empty">No packets captured yet.</td></tr></tbody></table></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Threat signals</h2><small>Rule-based traffic heuristics</small></div><span class="subtle">NOT A FULL IDS</span></div>
+        <div id="alertList" class="alert-list"><div class="empty">No heuristic alerts. This does not guarantee that the network is threat-free.</div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Top endpoints</h2><small>Most frequently observed addresses</small></div></div>
+        <div class="endpoint-columns"><div><b>TOP SOURCES</b><div id="topSources" class="endpoint-list">—</div></div><div><b>TOP DESTINATIONS</b><div id="topDestinations" class="endpoint-list">—</div></div></div>
+      </article>
+    </section>
+    <footer>NETSENTINEL · Local packet telemetry · No cloud packet upload <span id="uptime">UPTIME 00:00:00</span></footer>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
