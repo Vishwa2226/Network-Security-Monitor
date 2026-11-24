@@ -15,6 +15,8 @@ lock = RLock()
 sessions = {}          # SID -> {room, role}
 agents = {}            # hashed room -> agent SID
 interface_cache = {}   # hashed room -> latest interface list
+stats_cache = {}       # hashed room -> most recent stats snapshot
+capture_status_cache = {}  # hashed room -> most recent capture status
 
 
 def session_room(token):
@@ -54,9 +56,15 @@ def on_connect(auth=None):
         with lock:
             online = room in agents
             interfaces = interface_cache.get(room, [])
+            stats = stats_cache.get(room)
+            capture_status = capture_status_cache.get(room)
         emit("agent_status", {"online": online})
         if interfaces:
             emit("interfaces", interfaces)
+        if stats:
+            emit("stats", stats)
+        if capture_status:
+            emit("capture_status", capture_status)
     else:
         socketio.emit("agent_status", {"online": True}, to=room)
     return True
@@ -104,6 +112,8 @@ def on_agent_packet(data):
 def on_agent_stats(data):
     room = authenticated_agent_room()
     if room and isinstance(data, dict):
+        with lock:
+            stats_cache[room] = data
         socketio.emit("stats", data, to=room)
 
 
@@ -118,6 +128,8 @@ def on_agent_alert(data):
 def on_agent_capture_status(data):
     room = authenticated_agent_room()
     if room and isinstance(data, dict):
+        with lock:
+            capture_status_cache[room] = data
         socketio.emit("capture_status", data, to=room)
 
 
