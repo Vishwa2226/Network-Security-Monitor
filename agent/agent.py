@@ -4,6 +4,8 @@ import secrets
 import sys
 import threading
 import time
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import socketio
 
@@ -37,6 +39,19 @@ def load_dashboard_url():
         raise ValueError("Use your HTTPS hosted dashboard URL.")
     URL_FILE.write_text(value, encoding="utf-8")
     return value
+
+
+def wait_for_dashboard(url):
+    print("\\nChecking dashboard availability. On a free host, the first start may take a little longer…")
+    while True:
+        try:
+            with urlopen(url + "/health", timeout=12) as response:
+                if response.status == 200:
+                    print("Hosted dashboard is responding.")
+                    return
+        except (URLError, TimeoutError, OSError) as exc:
+            print(f"Dashboard is starting or temporarily unavailable ({exc}). Retrying in 5 seconds…")
+            time.sleep(5)
 
 
 def main():
