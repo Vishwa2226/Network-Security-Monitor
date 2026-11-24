@@ -1,4 +1,4 @@
-"""Packet normalization and conservative educational traffic heuristics."""
+"""Packet summary and conservative educational traffic heuristics."""
 from collections import Counter, defaultdict, deque
 from datetime import datetime
 from threading import Lock
@@ -49,8 +49,7 @@ class PacketAnalyzer:
         proto = "OTHER"
 
         if IP in packet:
-            ip = packet[IP]
-            src, dst = ip.src, ip.dst
+            src, dst = packet[IP].src, packet[IP].dst
             if TCP in packet:
                 tcp = packet[TCP]
                 proto = "TCP"
@@ -80,8 +79,7 @@ class PacketAnalyzer:
             elif ICMP in packet:
                 proto = "ICMP"
         elif ARP in packet:
-            proto = "ARP"
-            src, dst = packet[ARP].psrc, packet[ARP].pdst
+            proto, src, dst = "ARP", packet[ARP].psrc, packet[ARP].pdst
 
         size = len(packet)
         entry = {
@@ -104,8 +102,6 @@ class PacketAnalyzer:
                 self.rate_window.popleft()
 
         self.emit("packet", entry)
-        if self.total % 5 == 0:
-            self.emit("stats", self.snapshot())
 
     def snapshot(self):
         with self.lock:
